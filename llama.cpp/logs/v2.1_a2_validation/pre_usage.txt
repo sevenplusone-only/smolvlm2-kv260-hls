@@ -1,0 +1,15 @@
+
+--------------------------
+1/1 [0000:00:00.0] : edge
+--------------------------
+Xclbin UUID
+  08F7C1FD-6D07-50E9-C09C-6AF993B6E374
+
+Compute Units
+  PL Compute Units
+    Index   Name                                              Base_Address    Usage   Status  
+    0       fpga_gemm_kernel:fpga_gemm_kernel_1               0x80000000      12      (DONE|IDLE|READY)
+
+  PS Compute Units
+    Index   Name                                              Base_Address    Usage   Status  
+

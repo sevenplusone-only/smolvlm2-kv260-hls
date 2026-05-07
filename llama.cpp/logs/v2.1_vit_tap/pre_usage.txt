@@ -1,0 +1,22 @@
+
+--------------------------
+1/1 [0000:00:00.0] : edge
+--------------------------
+Xclbin UUID
+  00000000-0000-0000-0000-000000000000
+
+Compute Units
+  PL Compute Units
+    Index   Name                                              Base_Address    Usage   Status  
+
+  PS Compute Units
+    Index   Name                                              Base_Address    Usage   Status  
+
+
+=== NOTE: zero UUID is expected pre-run ===
+On KV260 edge, xclbin is loaded lazily by user process (ggml_xrt::get_runtime
+via xrt::device::load_xclbin(path) reading GGML_XRT_XCLBIN). xmutil loadapp
+only installs the bitstream via fpga_manager. xbutil dynamic-regions reports
+zero UUID until the first llama-server XRT init.
+Post-run check: xbutil examine dynamic-regions should show non-zero UUID + CU
+usage > 0 if Tap D was triggered.
