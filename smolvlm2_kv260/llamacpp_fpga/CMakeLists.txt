@@ -9,6 +9,8 @@ set(XRT_ROOT "/opt/xilinx/xrt" CACHE PATH "XRT installation prefix")
 
 add_library(smolvlm2_fpga_backend
     fpga_backend.cpp
+    fpga_c_api.cpp
+    fpga_session.cpp
     smolvlm2_xrt_runner.cpp
 )
 

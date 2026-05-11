@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fpga_backend.h"
+#include "hardware_manifest.h"
 
 #include <cstdint>
 #include <memory>
@@ -18,20 +19,30 @@ static constexpr int kLlmHidden = 960;
 static constexpr int kVocabSize = 49280;
 static constexpr int kNumLayers = 32;
 static constexpr int kNumKvHeads = 5;
-
-struct WeightOffsets {
-    int wgt_axi = 0;
-    int meta_axi = 0;
-};
+static constexpr int kModelMaxSeq = 8192;
+static constexpr int kHwMaxSeq = 2048;
 
 class SmolVlm2XrtRunner {
 public:
     explicit SmolVlm2XrtRunner(std::shared_ptr<FpgaBackend> backend);
 
     void allocate_buffers(size_t max_seq);
-    void encode_image();
+    void allocate_buffers(size_t max_seq, const HardwareManifest &manifest);
+    void load_export_artifacts(const std::string &export_dir);
+    void write_vision_patch_activations(const int8_t *patches, size_t patch_count, size_t hidden_stride);
+    void encode_image(const VisionOffsets &offsets);
+    void encode_image(const HardwareManifest &manifest);
     void prefill(int seq_len, const std::vector<WeightOffsets> &layer_offsets);
+    void prefill(int seq_len, const HardwareManifest &manifest);
     void decode_one(int pos, int kv_len, const std::vector<WeightOffsets> &layer_offsets);
+    void decode_one(int pos, int kv_len, const HardwareManifest &manifest);
+    void run_prefill_throughput(int seq_len, const std::vector<WeightOffsets> &layer_offsets);
+    void run_decode_ttft_token(int pos, int kv_len, const std::vector<WeightOffsets> &layer_offsets);
+    void run_decode_throughput_window(int pos, int kv_len, int window_tokens, const std::vector<WeightOffsets> &layer_offsets);
+    int build_prefill_activations(const std::vector<int> &token_ids);
+    int build_prefill_activations(const std::vector<int> &token_ids, const int8_t *token_embeddings, size_t embedding_stride);
+    void write_decode_token_activation(int pos, const int8_t *embedding, size_t embedding_stride);
+    void run_image_bridge(int dst_token_offset, int num_image_tokens);
     std::vector<int32_t> read_logits();
 
     FpgaBuffer &text_or_prefill_activations() { return act_ping_; }

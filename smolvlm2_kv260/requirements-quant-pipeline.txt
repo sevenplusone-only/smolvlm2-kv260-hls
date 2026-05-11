@@ -1,0 +1,7 @@
+torch
+transformers>=4.47.0
+datasets
+Pillow
+numpy
+tqdm
+accelerate

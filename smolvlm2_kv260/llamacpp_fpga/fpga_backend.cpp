@@ -12,6 +12,8 @@ FpgaBackend::FpgaBackend(const std::string &xclbin_path, unsigned device_index)
                               xrt::kernel::cu_access_mode::exclusive);
     connector_kernel_ = xrt::kernel(device_, uuid_, "smolvlm2_connector_kernel",
                                     xrt::kernel::cu_access_mode::exclusive);
+    bridge_kernel_ = xrt::kernel(device_, uuid_, "smolvlm2_image_to_decoder_bridge_kernel",
+                                 xrt::kernel::cu_access_mode::exclusive);
 }
 
 FpgaBuffer FpgaBackend::alloc(size_t bytes, const xrt::kernel &kernel, int group_id) {
@@ -25,8 +27,16 @@ void FpgaBackend::sync_to_device(FpgaBuffer &buffer) {
     buffer.bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 }
 
+void FpgaBackend::sync_to_device(FpgaBuffer &buffer, size_t size, size_t offset) {
+    buffer.bo.sync(XCL_BO_SYNC_BO_TO_DEVICE, size, offset);
+}
+
 void FpgaBackend::sync_from_device(FpgaBuffer &buffer) {
     buffer.bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+}
+
+void FpgaBackend::sync_from_device(FpgaBuffer &buffer, size_t size, size_t offset) {
+    buffer.bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE, size, offset);
 }
 
 } // namespace smolvlm2

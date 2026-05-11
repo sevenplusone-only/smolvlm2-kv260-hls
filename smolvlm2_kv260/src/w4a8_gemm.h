@@ -11,6 +11,7 @@
 // =============================================================================
 #pragma once
 #include "common.h"
+#include "unified_w4a8_gemm.h"
 #include "approx_math.h"
 
 // ---------------------------------------------------------------------------
@@ -27,15 +28,7 @@ static inline void pack_mul_2int8(
 ) {
 #pragma HLS INLINE
 #pragma HLS PIPELINE
-    // 打包：w_hi 移到第 9 位以上，避免与 w_lo 的 9-bit 有符号结果叠加
-    ap_int<27> packed = (ap_int<27>)(((ap_int<18>)w_hi << 9) | (ap_int<9>)w_lo);
-    ap_int<35> product;
-#pragma HLS bind_op variable=product op=mul impl=dsp
-    product  = (ap_int<35>)(packed * (ap_int<8>)act);
-    // 低 9 位为 w_lo × act（有符号扩展）
-    res_lo   = (INT16)(product.range(8,  0).to_int());
-    // 高段为 w_hi × act
-    res_hi   = (INT16)(product.range(26, 9).to_int());
+    pack_mul_2int8_shared(w_lo, w_hi, act, res_lo, res_hi);
 }
 
 // ---------------------------------------------------------------------------
@@ -51,17 +44,7 @@ static inline void dequant_w4_group(
 ) {
 #pragma HLS INLINE
 #pragma HLS ARRAY_PARTITION variable=out complete
-    for (int i = 0; i < K_UNROLL; ++i) {
-#pragma HLS UNROLL
-        // 取第 i 个 nibble（小端）
-        INT4p nibble = wgt_pack.range(i*4+3, i*4);
-        // W4 → INT8：(nibble - zp) × scale
-        // 这里 scale 已经是最终 INT8 量化值，不需要浮点
-        ap_int<9> tmp = (ap_int<9>)nibble - (ap_int<9>)zp;
-        // 用 LUTRAM 近似：直接存 scale 对应 16 个映射值
-        // 简化版：线性映射，综合时 HLS 推断为 LUT
-        out[i] = (INT8)((tmp * (ap_int<16>)scale) >> 4);
-    }
+    dequant_w4_group_shared(wgt_pack, scale, zp, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +70,7 @@ static inline void w4a8_mac_unit(
             for (int k = 0; k < K_UNROLL; ++k) {
 #pragma HLS UNROLL
                 INT16 r0, r1;
-                pack_mul_2int8(wgt[n][k], wgt[n+1][k], act[m][k], r0, r1);
+                pack_mul_2int8_shared(wgt[n][k], wgt[n+1][k], act[m][k], r0, r1);
                 psum[m][n]   += (INT32)r0;
                 psum[m][n+1] += (INT32)r1;
             }

@@ -12,7 +12,9 @@ extern "C" void smolvlm2_vit_prefill_kernel(
     int           mode,
     int           M,
     int           K,
-    int           N
+    int           N,
+    int           wgt_offset,
+    int           meta_offset
 );
 
 extern "C" void smolvlm2_connector_kernel(
@@ -20,5 +22,7 @@ extern "C" void smolvlm2_connector_kernel(
     const AXI256 *projector_wgt,
     const AXI256 *projector_meta,
           AXI256 *image_tokens,
-    int           run_projector
+    int           run_projector,
+    int           wgt_offset,
+    int           meta_offset
 );

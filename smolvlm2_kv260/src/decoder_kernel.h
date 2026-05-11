@@ -9,6 +9,9 @@ struct DecoderConfig {
     int seq_len;       // 当前 token 数（Prefill: L≤512，Decode: 1）
     int kv_len;        // KV Cache 当前有效长度（含本次输出后）
     int pos_start;     // RoPE 位置编码起始
+    int exec_mode;     // 0=ttft_decode, 1=throughput_prefill, 2=throughput_decode
+    int token_tile_offset; // 当前处理的 token tile 起点
+    int token_tile_size;   // 当前处理的 token tile 大小
     int layer_id;      // 当前层 id（0~31），用于 KV Cache DDR 偏移计算
     int run_lmhead;    // 是否执行 lm_head（1=最后 token 的最后 layer 后执行）
     int is_prefill;    // 1=Prefill，0=Decode
@@ -52,6 +55,9 @@ extern "C" void smolvlm2_decoder_layer(
     int            seq_len,
     int            kv_len,
     int            pos_start,
+    int            exec_mode,
+    int            token_tile_offset,
+    int            token_tile_size,
     int            run_lmhead,
     int            layer_id,
     int            use_ping,

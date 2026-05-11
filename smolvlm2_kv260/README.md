@@ -9,10 +9,10 @@
 - Connector：`use_resampler=false`，走 `pixel_shuffle_factor=4`，`1024x768 -> 64x12288 -> 64x960`
 - LLM：hidden `960`、QKV `960x1600`、FFN `960->5120->2560->960`、lm_head `960x49280`
 
-ViT/connector 使用 clean-room 的 `8x8x8` W4A8 GEMM primitive；SEC 工程只作为阵列思想参考，不复用 APOT 或源码结构。
+ViT / connector / decoder 统一复用 `W4A8 + AWQ + group_size=32 + pack_mul_2int8` GEMM primitive；SEC 工程只作为阵列思想参考，不复用 APOT 或源码结构。
 
 当前仓库包含两条并行推进的推理栈路径：
-- `native llama.cpp + ggml-xrt`：以 `ggml` backend 方式接入 KV260，优先把 `mul_mat` 与 `--mmproj` 的主干工程化打通，并保留 CPU fallback。
+- `native llama.cpp + ggml-xrt`：以 `ggml` backend 方式接入 KV260，统一装载 vision / connector / decoder 的 W4A8 量化权重，并保留 CPU fallback。
 - `monolithic HLS kernels`：`smolvlm2_decoder_layer`、`smolvlm2_vit_prefill_kernel`、`smolvlm2_connector_kernel` 继续承担更完整的 FPGA 主路径验证。
 
 **核心设计取舍：**
@@ -31,7 +31,7 @@ smolvlm2_kv260/
 │   ├── rope.h             # RoPE（CORDIC LUT，Q1.15 精度）
 │   ├── attention.h        # Flash Attention + KV Cache Ping-Pong
 │   ├── silu_gate.h        # SiLU(gate)×up 融合 + 在线量化
-│   ├── tiled_gemm_8x8.h   # 8×8×8 W4A8 通用矩阵阵列
+│   ├── unified_w4a8_gemm.h# ViT / connector / decoder 共享 W4A8 GEMM primitive
 │   ├── vit_kernel.h/.cpp  # ViT / pixel shuffle / connector HLS kernels
 │   ├── decoder_kernel.h   # 顶层 kernel 接口声明
 │   └── decoder_kernel.cpp # 顶层 kernel 实现（含 DATAFLOW）
@@ -153,16 +153,32 @@ Attention 计算：约 5~10μs
 → DMA 完全被 PL 计算掩盖
 ```
 
+### 6. Decode 瓶颈说明
+
+当前 decode 阶段已经会从 `KV cache` 读取历史 K/V，注意力部分的历史上下文复用并不是缺失状态。
+
+当前整机吞吐的主瓶颈是：
+- 每生成 1 个 token，32 层 decoder 的 `weight/meta` 仍会从 DDR 重新读取
+- `lm_head` 也仍然是一次大读
+
+因此：
+- `KV cache` 解决的是“历史 token 激活/注意力状态复用”
+- 它不能替代 decoder `weight/meta` 的层参数复用
+- 真正的下一阶段优化重点应当是：
+  - layer-resident / token-window 调度
+  - weight/meta 预取与当前层计算 overlap
+  - connector -> decoder 更强的设备侧直通
+
 ---
 
 ## 资源估算
 
-| 资源  | 预算（留 20% margin） | 估算使用 | 余量  |
-|-------|----------------------|---------|-------|
-| DSP   | 998                  | ~512    | 48%   |
-| BRAM  | 115                  | ~25     | 78%   |
-| URAM  | 51                   | ~16     | 69%   |
-| LUT   | 94K                  | ~25K    | 73%   |
+| 资源  | 预算（留 20% margin） | 当前主线目标 | 备注 |
+|-------|----------------------|-------------|------|
+| DSP   | 998                  | 主 MAC 使用 `pack_mul_2int8` | 1 DSP 承担 2 个 INT8 乘法 |
+| BRAM  | 115                  | 以统一 GEMM + attention tile 为主 | 需以 csynth / link 报告为准 |
+| URAM  | 51                   | 以 decoder 残差 / vision shuffle 缓冲为主 | 需以 csynth / link 报告为准 |
+| LUT   | 94K                  | dequant / LUT 激活函数 / 控制逻辑 | 不作为主乘法阵列预算口径 |
 
 ---
 
@@ -202,6 +218,84 @@ pip install torch transformers
 make quant
 # 输出到 quantized_weights/
 ```
+
+### 统一量化实验流水线
+
+新增本地实验入口，用于统一比较以下五种候选：
+- `w4a8_g32_zero`
+- `w4a8_awq_g32`
+- `w4_apot_a8_bfp`
+- `full_bfp`
+- `full_apot`
+
+建议单独准备 Python 环境并安装：
+
+```bash
+pip install -r requirements-quant-pipeline.txt
+```
+
+当前这条流水线默认用于软件端验证，不修改现有硬件侧 HLS / XRT 代码路径。
+执行顺序应当是：
+1. 先运行 `prepare` 生成并检查多模态校准/训练/验证数据清单
+2. 确认数据分布与样本路径正常
+3. 再进入 `calibrate/train/eval/export`
+
+仅生成调整后的多模态数据清单：
+
+```bash
+python scripts/run_quant_experiment.py \
+  --stage prepare \
+  --model-path /Users/miracle/smolvlm_local \
+  --output-dir quant_experiments \
+  --allow-hf-download
+```
+
+生成数据清单并执行全流程：
+
+```bash
+python scripts/run_quant_experiment.py \
+  --scheme all \
+  --stage all \
+  --model-path /Users/miracle/smolvlm_local \
+  --output-dir quant_experiments \
+  --allow-hf-download
+```
+
+也可以只跑单一方案或单阶段：
+
+```bash
+python scripts/run_quant_experiment.py --scheme w4a8_awq_g32 --stage calibrate
+python scripts/run_quant_experiment.py --scheme full_bfp --stage train
+python scripts/run_quant_experiment.py --scheme full_apot --stage eval
+python scripts/run_quant_experiment.py --scheme w4a8_g32_zero --stage export
+```
+
+输出内容：
+- `quant_experiments/dataset_manifest.json`：校准、训练、冻结评测、held-out 评测的数据清单
+- `quant_experiments/<scheme>/result.json`：单方案完整结果
+- `quant_experiments/<scheme>/checkpoint/`：本地评测 checkpoint 与方案 manifest
+- `quant_experiments/<scheme>/hardware_export/`：板端或 replay 所需导出物
+- `quant_experiments/summary.json`：汇总排序、Top-2 板端候选
+
+结果 JSON 遵循：
+- `quant_pipeline/result_schema.json`
+
+本地判定标准：
+- 冻结 100 样本 OCR/VQA 准确率相对基线下降不超过 5 个百分点
+- WikiText-2 PPL 相对基线恶化不超过 15%
+- 生成健全性检查通过（无空输出、无明显 NaN/崩溃）
+
+快速筛选模式说明：
+- 仅用于技术方向初筛，不作为最终论文级或完整报告结论
+- 缩减的是样本规模、训练步数、生成 token 上限
+- 不缩减推理链路本身：仍然走完整的 SmolVLM 多模态预处理、模型前向和生成
+- 对 AWQ 仍保留多模态校准；不会退化成纯文本校准
+
+板端策略：
+- 先本地完成五方案筛选
+- 仅对 `summary.json` 中前两名做 KV260 replay / 板端验证
+- `W4A8` 家族直接复用现有导出路径
+- `APoT/BFP` 家族先做 layer replay，再做 kernel C-sim / 资源检查，再考虑板端集成
 
 量化脚本现在会导出两类资产：
 - HLS 主链路资产：
@@ -292,7 +386,7 @@ make host
 
 ## 精度说明
 
-- W4A8，group_size=32，RTN 量化
+- W4A8，AWQ，group_size=32
 - KV Cache INT4，per-group absmax 量化
 - RoPE cos/sin：Q1.15（INT16）
 - exp 近似：9-bit LUT，覆盖 [-8, 0]

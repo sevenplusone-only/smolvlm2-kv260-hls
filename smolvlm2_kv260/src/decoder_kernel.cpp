@@ -49,26 +49,28 @@ static void load_act(
     const AXI256 *act_ping,
     const AXI256 *act_pong,
     bool          use_ping,
-    int           seq_len
+    int           seq_len,
+    int           token_offset,
+    int           token_count
 ) {
 #pragma HLS INLINE off
 #pragma HLS INTERFACE m_axi port=act_ping bundle=gmem_ap max_read_burst_length=16
 #pragma HLS INTERFACE m_axi port=act_pong bundle=gmem_ap max_read_burst_length=16
 
     const AXI256 *src = use_ping ? act_ping : act_pong;
-    // AXI256 = 32 byte = 32 INT8 激活元素
-    int total_vecs = (seq_len * C) / 32;  // C=960，必须整除
 
-    for (int v = 0; v < total_vecs; ++v) {
+    (void)seq_len;
+    for (int t = 0; t < token_count; ++t) {
+        for (int c = 0; c < C; c += 32) {
 #pragma HLS PIPELINE II=1
-        AXI256 word = src[v];
-        int t = (v * 32) / C;
-        int c = (v * 32) % C;
-        for (int b = 0; b < 32; ++b) {
+            int src_word = ((token_offset + t) * C + c) / 32;
+            AXI256 word = src[src_word];
+            for (int b = 0; b < 32; ++b) {
 #pragma HLS UNROLL
-            // Keep residual buffers in Q8.8 so RMSNorm / residual paths share
-            // one internal numeric convention.
-            res_buf_0[t][c + b] = (INT32)((INT8)word.range(b*8+7, b*8)) << 8;
+                // Keep residual buffers in Q8.8 so RMSNorm / residual paths share
+                // one internal numeric convention.
+                res_buf_0[token_offset + t][c + b] = (INT32)((INT8)word.range(b*8+7, b*8)) << 8;
+            }
         }
     }
 }
@@ -96,23 +98,26 @@ static void load_gamma(
 // ---------------------------------------------------------------------------
 static void store_act(
     AXI256       *act_out,
-    int           seq_len
+    int           seq_len,
+    int           token_offset,
+    int           token_count
 ) {
 #pragma HLS INLINE off
 #pragma HLS INTERFACE m_axi port=act_out bundle=gmem_ao max_write_burst_length=16
 
-    int total_vecs = (seq_len * C) / 32;
-    for (int v = 0; v < total_vecs; ++v) {
+    (void)seq_len;
+    for (int t = 0; t < token_count; ++t) {
+        for (int c = 0; c < C; c += 32) {
 #pragma HLS PIPELINE II=1
-        int t   = (v * 32) / C;
-        int c   = (v * 32) % C;
-        AXI256 word = 0;
-        for (int b = 0; b < 32; ++b) {
+            AXI256 word = 0;
+            for (int b = 0; b < 32; ++b) {
 #pragma HLS UNROLL
-            INT8 val = (INT8)(res_buf_1[t][c + b] >> 8); // 截断高精度
-            word.range(b*8+7, b*8) = (ap_uint<8>)val;
+                INT8 val = (INT8)(res_buf_1[token_offset + t][c + b] >> 8); // 截断高精度
+                word.range(b*8+7, b*8) = (ap_uint<8>)val;
+            }
+            int dst_word = ((token_offset + t) * C + c) / 32;
+            act_out[dst_word] = word;
         }
-        act_out[v] = word;
     }
 }
 
@@ -122,13 +127,16 @@ static void store_act(
 static void res_to_stream(
     INT32              src[MAX_L][C],
     hls::stream<INT32> &out_s,
-    int                 seq_len
+    int                 seq_len,
+    int                 token_offset,
+    int                 token_count
 ) {
 #pragma HLS INLINE off
-    for (int t = 0; t < seq_len; ++t) {
+    (void)seq_len;
+    for (int t = 0; t < token_count; ++t) {
         for (int c = 0; c < C; ++c) {
 #pragma HLS PIPELINE II=1
-            out_s.write(src[t][c]);
+            out_s.write(src[token_offset + t][c]);
         }
     }
 }
@@ -146,6 +154,23 @@ static void stream_to_res(
         for (int c = 0; c < C; ++c) {
 #pragma HLS PIPELINE II=1
             dst[t][c] = in_s.read();
+        }
+    }
+}
+
+static void residual_add_range(
+    hls::stream<INT32> &delta_s,
+    INT32               res[MAX_L][C],
+    int                 token_offset,
+    int                 token_count
+) {
+#pragma HLS INLINE off
+    for (int t = 0; t < token_count; ++t) {
+        HLS_LOOP_TRIPCOUNT(1, 512);
+        for (int c = 0; c < C; ++c) {
+#pragma HLS PIPELINE II=1
+            INT32 d = delta_s.read();
+            res[token_offset + t][c] = res[token_offset + t][c] + d;
         }
     }
 }
@@ -191,6 +216,9 @@ extern "C" void smolvlm2_decoder_layer(
     int            seq_len,
     int            kv_len,
     int            pos_start,
+    int            exec_mode,
+    int            token_tile_offset,
+    int            token_tile_size,
     int            run_lmhead,
     int            layer_id,
     int            use_ping,
@@ -222,6 +250,9 @@ extern "C" void smolvlm2_decoder_layer(
 #pragma HLS INTERFACE s_axilite port=seq_len    bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=kv_len     bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=pos_start  bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=exec_mode bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=token_tile_offset bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=token_tile_size bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=run_lmhead bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=layer_id   bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=use_ping   bundle=ctrl
@@ -305,20 +336,24 @@ extern "C" void smolvlm2_decoder_layer(
     (void)num_heads;
     (void)num_kv_heads;
 
+    const bool throughput_prefill = exec_mode == 1;
+    const int work_token_offset = throughput_prefill ? token_tile_offset : 0;
+    const int work_token_count  = throughput_prefill ? token_tile_size : seq_len;
+
     const AXI256 *layer_wgt0  = wgt_half0  + wgt_offset;
     const AXI256 *layer_wgt1  = wgt_half1  + wgt_offset;
     const AXI256 *layer_meta0 = meta_half0 + meta_offset;
     const AXI256 *layer_meta1 = meta_half1 + meta_offset;
 
-    load_act(act_ping, act_pong, use_ping != 0, seq_len);
+    load_act(act_ping, act_pong, use_ping != 0, seq_len, work_token_offset, work_token_count);
     load_gamma(gamma_attn, gamma_attn_buf);
     load_gamma(gamma_ffn,  gamma_ffn_buf);
 
     // -----------------------------------------------------------------------
     // §1  RMSNorm + 激活量化（attention pre-norm）
     // -----------------------------------------------------------------------
-    res_to_stream(res_buf_0, s_raw_act, seq_len);
-    rmsnorm_quant(s_raw_act, gamma_attn_buf, s_norm1_q, s_norm1_sc, seq_len);
+    res_to_stream(res_buf_0, s_raw_act, seq_len, work_token_offset, work_token_count);
+    rmsnorm_quant(s_raw_act, gamma_attn_buf, s_norm1_q, s_norm1_sc, work_token_count);
 
     // -----------------------------------------------------------------------
     // §2  QKV 融合 GEMM（N=1600：Q960+K320+V320）
@@ -329,12 +364,12 @@ extern "C" void smolvlm2_decoder_layer(
               layer_wgt0, layer_wgt1,
               layer_meta0, layer_meta1,
               s_qkv_out,
-              seq_len, C, N_QKV);
+              work_token_count, C, N_QKV);
 
     // -----------------------------------------------------------------------
     // §3  RoPE（Q 和 K 旋转，V 直通）
     // -----------------------------------------------------------------------
-    rope_split_qk(s_qkv_out, s_q_rot, s_k_rot, s_v_pass, pos_start, seq_len);
+    rope_split_qk(s_qkv_out, s_q_rot, s_k_rot, s_v_pass, pos_start + work_token_offset, work_token_count);
 
     // -----------------------------------------------------------------------
     // §4  Flash Attention + KV Cache Ping-Pong
@@ -343,11 +378,11 @@ extern "C" void smolvlm2_decoder_layer(
         s_q_rot, s_k_rot, s_v_pass,
         k_cache_ddr, v_cache_ddr,
         s_attn_o,
-        pos_start, kv_len, seq_len
+        pos_start + work_token_offset, kv_len, work_token_count, layer_id
     );
 
     // §4 → §5：重排 head-major → flat token-major
-    o_scatter(s_attn_o, s_o_flat, seq_len);
+    o_scatter(s_attn_o, s_o_flat, work_token_count);
 
     // -----------------------------------------------------------------------
     // §5  O 投影 GEMM（N=960）
@@ -355,7 +390,7 @@ extern "C" void smolvlm2_decoder_layer(
     //     此处复用 w4a8_gemm，传入的 wgt 指针是 QKV 权重之后的 O proj 偏移
     //     注：需要第二套 gamma stream——用 s_o_q/s_o_sc 作为激活量化后的输入
     // -----------------------------------------------------------------------
-    act_quant(s_o_flat, s_o_q, s_o_sc, seq_len, C);
+    act_quant(s_o_flat, s_o_q, s_o_sc, work_token_count, C);
 
     // O proj：wgt_half 指针地址偏移由调用方（PS）设置好
     // 工程中将 wgt_half0 + QKV_WGT_OFFSET 作为 O proj 权重起始地址
@@ -366,26 +401,26 @@ extern "C" void smolvlm2_decoder_layer(
               layer_meta0 + (C * N_QKV / (GRP * 16)),
               layer_meta1 + (C * N_QKV / (GRP * 16)),
               s_oproj_out,
-              seq_len, C, C);
+              work_token_count, C, C);
 
     // -----------------------------------------------------------------------
     // §6  残差加 1：O proj 输出 + res_buf_0 → res_buf_1（attention 残差）
     // -----------------------------------------------------------------------
-    residual_add(s_oproj_out, res_buf_0, seq_len);
+    residual_add_range(s_oproj_out, res_buf_0, work_token_offset, work_token_count);
     // 将 res_buf_0（已更新）复制到 res_buf_1 作为 FFN 残差基准
     // 并行发射给 §7 RMSNorm
-    for (int t = 0; t < seq_len; ++t) {
+    for (int t = 0; t < work_token_count; ++t) {
         for (int c = 0; c < C; ++c) {
 #pragma HLS PIPELINE II=1
-            res_buf_1[t][c] = res_buf_0[t][c];
+            res_buf_1[work_token_offset + t][c] = res_buf_0[work_token_offset + t][c];
         }
     }
 
     // -----------------------------------------------------------------------
     // §7  RMSNorm（FFN pre-norm）
     // -----------------------------------------------------------------------
-    res_to_stream(res_buf_1, s_raw_act2, seq_len);
-    rmsnorm_quant(s_raw_act2, gamma_ffn_buf, s_norm2_q, s_norm2_sc, seq_len);
+    res_to_stream(res_buf_1, s_raw_act2, seq_len, work_token_offset, work_token_count);
+    rmsnorm_quant(s_raw_act2, gamma_ffn_buf, s_norm2_q, s_norm2_sc, work_token_count);
 
     // -----------------------------------------------------------------------
     // §8  FFN gate/up 拼接 GEMM（N=5120）
@@ -401,12 +436,12 @@ extern "C" void smolvlm2_decoder_layer(
               layer_meta0 + (FFN_WGT_OFFSET * GRP / 32),
               layer_meta1 + (FFN_WGT_OFFSET * GRP / 32),
               s_gateup_out,
-              seq_len, C, N_FFN_GATEUP);
+              work_token_count, C, N_FFN_GATEUP);
 
     // -----------------------------------------------------------------------
     // §9  SiLU(gate) × up + per-token 量化（流内融合）
     // -----------------------------------------------------------------------
-    silu_gate_fuse_quant(s_gateup_out, s_ffn_act, s_ffn_sc, seq_len);
+    silu_gate_fuse_quant(s_gateup_out, s_ffn_act, s_ffn_sc, work_token_count);
 
     // -----------------------------------------------------------------------
     // §10 FFN down GEMM（N=960，K=2560=FFN_DIM）
@@ -419,17 +454,17 @@ extern "C" void smolvlm2_decoder_layer(
               layer_meta0 + (DOWN_WGT_OFFSET * GRP / 32),
               layer_meta1 + (DOWN_WGT_OFFSET * GRP / 32),
               s_down_out,
-              seq_len, FFN_DIM, C);
+              work_token_count, FFN_DIM, C);
 
     // -----------------------------------------------------------------------
     // §11 残差加 2：FFN down + res_buf_1 → res_buf_1（最终输出）
     // -----------------------------------------------------------------------
-    residual_add(s_down_out, res_buf_1, seq_len);
+    residual_add_range(s_down_out, res_buf_1, work_token_offset, work_token_count);
 
     // -----------------------------------------------------------------------
     // 写回 DDR（act_out，供下一层或 lm_head 使用）
     // -----------------------------------------------------------------------
-    store_act(act_out, seq_len);
+    store_act(act_out, seq_len, work_token_offset, work_token_count);
 
     // -----------------------------------------------------------------------
     // §12 lm_head（可选，M=1，K=960，N=49280）

@@ -22,9 +22,12 @@ static constexpr int FFN_DIM    = 2560;   // intermediate_size
 static constexpr int N_QKV      = C + H_KV*D_HEAD*2; // 960+320+320=1600
 static constexpr int N_FFN_GATEUP = FFN_DIM * 2;     // 5120，离线拼接
 static constexpr int VOCAB      = 49280;
+static constexpr int NUM_LAYERS = 32;
+static constexpr int MODEL_MAX_SEQ = 8192; // text_config.max_position_embeddings
+static constexpr int HW_MAX_SEQ    = 2048; // current FPGA-supported hard limit
 
 // KV Cache 尺寸上限
-static constexpr int MAX_SEQ    = 2048;
+static constexpr int MAX_SEQ    = HW_MAX_SEQ;
 static constexpr int MAX_L      = 512;    // Prefill 最大序列长度
 
 // ---------------------------------------------------------------------------

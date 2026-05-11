@@ -2,7 +2,7 @@
 // vit_kernel.cpp  —  ViT + connector kernels matching config.json dimensions
 // =============================================================================
 #include "vit_kernel.h"
-#include "tiled_gemm_8x8.h"
+#include "unified_w4a8_gemm.h"
 #include "approx_math.h"
 
 static AXI256 connector_shuffle_buf[(IMAGE_TOKENS * CONNECTOR_IN) / 32];
@@ -119,7 +119,9 @@ extern "C" void smolvlm2_vit_prefill_kernel(
     int           mode,
     int           M,
     int           K,
-    int           N
+    int           N,
+    int           wgt_offset,
+    int           meta_offset
 ) {
 #pragma HLS INTERFACE m_axi port=act_in  bundle=gmem_vact offset=slave max_read_burst_length=16
 #pragma HLS INTERFACE m_axi port=wgt     bundle=gmem_vw   offset=slave max_read_burst_length=16
@@ -129,7 +131,12 @@ extern "C" void smolvlm2_vit_prefill_kernel(
 #pragma HLS INTERFACE s_axilite port=M       bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=K       bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=N       bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=wgt_offset  bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=meta_offset bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
+
+    const AXI256 *wgt_base = wgt + wgt_offset;
+    const AXI256 *meta_base = meta + meta_offset;
 
     const bool supported_vit_attn =
         mode == MODE_VIT_ATTN && M == VIT_TOKENS && K == VIT_QKV && N == VIT_C;
@@ -146,7 +153,7 @@ extern "C" void smolvlm2_vit_prefill_kernel(
     if (supported_vit_attn) {
         vit_attention_full(act_in, act_out);
     } else if (supported_mode_shape || supported_generic_gemm) {
-        tiled_gemm_8x8_w4a8(act_in, wgt, meta, act_out, M, K, N);
+        unified_gemm_w4a8_int8_in_int32_out(act_in, wgt_base, meta_base, act_out, M, K, N);
     }
 }
 
@@ -155,21 +162,28 @@ extern "C" void smolvlm2_connector_kernel(
     const AXI256 *projector_wgt,
     const AXI256 *projector_meta,
           AXI256 *image_tokens,
-    int           run_projector
+    int           run_projector,
+    int           wgt_offset,
+    int           meta_offset
 ) {
 #pragma HLS INTERFACE m_axi port=vit_tokens    bundle=gmem_cact offset=slave max_read_burst_length=16
 #pragma HLS INTERFACE m_axi port=projector_wgt bundle=gmem_cw   offset=slave max_read_burst_length=16
 #pragma HLS INTERFACE m_axi port=projector_meta bundle=gmem_cm  offset=slave max_read_burst_length=16
 #pragma HLS INTERFACE m_axi port=image_tokens  bundle=gmem_cout offset=slave max_write_burst_length=16
 #pragma HLS INTERFACE s_axilite port=run_projector bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=wgt_offset  bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=meta_offset bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=return bundle=ctrl
+
+    const AXI256 *wgt_base = projector_wgt + wgt_offset;
+    const AXI256 *meta_base = projector_meta + meta_offset;
 
     pixel_shuffle_4x(vit_tokens, connector_shuffle_buf);
     if (run_projector) {
-        tiled_gemm_8x8_w4a8(
+        unified_gemm_w4a8_int8_in_int32_out(
             connector_shuffle_buf,
-            projector_wgt,
-            projector_meta,
+            wgt_base,
+            meta_base,
             image_tokens,
             IMAGE_TOKENS,
             CONNECTOR_IN,

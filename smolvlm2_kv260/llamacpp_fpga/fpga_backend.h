@@ -22,11 +22,14 @@ public:
 
     FpgaBuffer alloc(size_t bytes, const xrt::kernel &kernel, int group_id);
     void sync_to_device(FpgaBuffer &buffer);
+    void sync_to_device(FpgaBuffer &buffer, size_t size, size_t offset);
     void sync_from_device(FpgaBuffer &buffer);
+    void sync_from_device(FpgaBuffer &buffer, size_t size, size_t offset);
 
     xrt::kernel &decoder_kernel() { return decoder_kernel_; }
     xrt::kernel &vit_kernel() { return vit_kernel_; }
     xrt::kernel &connector_kernel() { return connector_kernel_; }
+    xrt::kernel &bridge_kernel() { return bridge_kernel_; }
 
 private:
     xrt::device device_;
@@ -34,6 +37,7 @@ private:
     xrt::kernel decoder_kernel_;
     xrt::kernel vit_kernel_;
     xrt::kernel connector_kernel_;
+    xrt::kernel bridge_kernel_;
 };
 
 } // namespace smolvlm2

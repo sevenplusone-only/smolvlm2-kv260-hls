@@ -54,10 +54,12 @@ cp smolvlm2_decoder_kernel.xo "${BUILD_DIR}/"
 if [ "${ENABLE_MULTI_KERNEL}" = "1" ]; then
     run_hls_if_missing hls_synth_vit.tcl smolvlm2_vit_kernel.xo
     run_hls_if_missing hls_synth_connector.tcl smolvlm2_connector_kernel.xo
+    run_hls_if_missing hls_synth_bridge.tcl smolvlm2_bridge_kernel.xo
     cp smolvlm2_vit_kernel.xo "${BUILD_DIR}/"
     cp smolvlm2_connector_kernel.xo "${BUILD_DIR}/"
+    cp smolvlm2_bridge_kernel.xo "${BUILD_DIR}/"
     echo "[BUILD] Multi-kernel overlay enabled."
-    echo "        XO files: decoder + vit_prefill/generic_gemm + connector"
+    echo "        XO files: decoder + vit_prefill/generic_gemm + connector + bridge"
 else
     echo "[BUILD] ENABLE_MULTI_KERNEL=0, only decoder XO will be linked."
 fi
@@ -81,6 +83,7 @@ if [ "${ENABLE_MULTI_KERNEL}" = "1" ]; then
     LINK_CFG="${CFG_DIR}/kv260_link_multi.cfg"
     XO_FILES+=("${HLS_DIR}/smolvlm2_vit_kernel.xo")
     XO_FILES+=("${HLS_DIR}/smolvlm2_connector_kernel.xo")
+    XO_FILES+=("${HLS_DIR}/smolvlm2_bridge_kernel.xo")
 fi
 
 if [ ! -f "${XCLBIN}" ]; then

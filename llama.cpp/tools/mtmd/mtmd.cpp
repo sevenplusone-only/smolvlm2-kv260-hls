@@ -1031,6 +1031,38 @@ llama_pos mtmd_image_tokens_get_n_pos(const mtmd_image_tokens * image_tokens) {
     return image_tokens->n_tokens();
 }
 
+size_t mtmd_image_tokens_get_n_images(const mtmd_image_tokens * image_tokens) {
+    return image_tokens->batch_f32.entries.size();
+}
+
+size_t mtmd_image_tokens_get_image_nx(const mtmd_image_tokens * image_tokens, int idx) {
+    if (idx < 0 || (size_t)idx >= image_tokens->batch_f32.entries.size()) {
+        return 0;
+    }
+    return image_tokens->batch_f32.entries[idx]->nx;
+}
+
+size_t mtmd_image_tokens_get_image_ny(const mtmd_image_tokens * image_tokens, int idx) {
+    if (idx < 0 || (size_t)idx >= image_tokens->batch_f32.entries.size()) {
+        return 0;
+    }
+    return image_tokens->batch_f32.entries[idx]->ny;
+}
+
+const float * mtmd_image_tokens_get_image_f32(const mtmd_image_tokens * image_tokens, int idx, size_t * n_floats) {
+    if (n_floats) {
+        *n_floats = 0;
+    }
+    if (idx < 0 || (size_t)idx >= image_tokens->batch_f32.entries.size()) {
+        return nullptr;
+    }
+    const auto & img = image_tokens->batch_f32.entries[idx];
+    if (n_floats) {
+        *n_floats = img->buf.size();
+    }
+    return img->buf.data();
+}
+
 // test function
 
 mtmd_input_chunks * mtmd_test_create_input_chunks() {

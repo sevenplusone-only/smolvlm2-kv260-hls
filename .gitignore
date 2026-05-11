@@ -1,0 +1,26 @@
+.DS_Store
+
+# Python envs and caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pycache/
+
+# Local experiment outputs and regenerated exports
+smolvlm2_kv260/quant_experiments*/
+smolvlm2_kv260/quant_pipeline/
+smolvlm2_kv260/*.xclbin
+smolvlm2_kv260/*.xo
+smolvlm2_kv260/*.log
+smolvlm2_kv260/*.jou
+smolvlm2_kv260/*.str
+smolvlm2_kv260/*.zip
+smolvlm2_kv260/*.tar.gz
+smolvlm2_kv260/build/
+smolvlm2_kv260/package/
+smolvlm2_kv260/_x/
+aicas_semi/
+
+# Generated manifests and temporary reports
+/private/tmp/

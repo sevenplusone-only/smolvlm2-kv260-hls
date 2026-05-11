@@ -173,6 +173,10 @@ MTMD_API size_t       mtmd_image_tokens_get_ny      (const mtmd_image_tokens * i
 MTMD_API const char * mtmd_image_tokens_get_id      (const mtmd_image_tokens * image_tokens); // TODO: deprecate
 // number of temporal positions (always 1 for M-RoPE, n_tokens otherwise)
 MTMD_API llama_pos    mtmd_image_tokens_get_n_pos   (const mtmd_image_tokens * image_tokens); // TODO: deprecate
+MTMD_API size_t       mtmd_image_tokens_get_n_images(const mtmd_image_tokens * image_tokens);
+MTMD_API size_t       mtmd_image_tokens_get_image_nx (const mtmd_image_tokens * image_tokens, int idx);
+MTMD_API size_t       mtmd_image_tokens_get_image_ny (const mtmd_image_tokens * image_tokens, int idx);
+MTMD_API const float *mtmd_image_tokens_get_image_f32(const mtmd_image_tokens * image_tokens, int idx, size_t * n_floats);
 
 // tokenize an input text prompt and a list of bitmaps (images/audio)
 // the prompt must have the input image marker (default: "<__media__>") in it

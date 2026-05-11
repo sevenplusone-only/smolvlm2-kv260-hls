@@ -10,14 +10,50 @@ static inline INT16 exp_approx(INT32 x_scaled) {
     return approx_exp_q15(x_scaled);
 }
 
+static inline ap_uint<128> axi_read_128_half(
+    AXI256 *base,
+    int     half_idx
+) {
+#pragma HLS INLINE
+    AXI256 word = base[half_idx >> 1];
+    return (half_idx & 1) == 0
+        ? (ap_uint<128>)word.range(127, 0)
+        : (ap_uint<128>)word.range(255, 128);
+}
+
+static inline void axi_write_128_half(
+    AXI256       *base,
+    int           half_idx,
+    ap_uint<128>  value
+) {
+#pragma HLS INLINE
+    int word_idx = half_idx >> 1;
+    AXI256 word = base[word_idx];
+    if ((half_idx & 1) == 0) {
+        word.range(127, 0) = value;
+    } else {
+        word.range(255, 128) = value;
+    }
+    base[word_idx] = word;
+}
+
+static inline int kv_cache_half_index(
+    int head_id,
+    int pos,
+    int group
+) {
+#pragma HLS INLINE
+    return head_id * MAX_SEQ * (D_HEAD / GRP) + pos * (D_HEAD / GRP) + group;
+}
+
 // ---------------------------------------------------------------------------
 // KV Cache INT4 Ping-Pong 缓冲
 //   每个 head 的 KV 数据：MAX_SEQ × D_HEAD × 0.5 byte = 512 × 64 × 0.5 = 16KB
 //   两个 bank：16KB × 2 = 32KB/head → BRAM（每 BRAM-36K = 32KB）
 // ---------------------------------------------------------------------------
 struct KVCacheHead {
-    ap_uint<128> k_pack[MAX_SEQ * D_HEAD / (2 * 32)]; // K：INT4，每 128-bit 含 32 nibble
-    ap_uint<128> v_pack[MAX_SEQ * D_HEAD / (2 * 32)]; // V：INT4
+    ap_uint<128> k_pack[MAX_SEQ * (D_HEAD / GRP)]; // K：INT4，每 128-bit 含 32 nibble
+    ap_uint<128> v_pack[MAX_SEQ * (D_HEAD / GRP)]; // V：INT4
 };
 
 // Ping-Pong 双 bank（head 级别预取）
@@ -36,6 +72,7 @@ static inline void kv_cache_write(
     AXI256             *v_cache,  // DDR V Cache（HPC1）
     int                 cur_pos,  // 当前写入位置（序列维度）
     int                 n_tokens, // 本次写入 token 数
+    int                 layer_id,
     int                 head_id,  // 当前 KV head id
     int                 bank      // 写入哪个 ping-pong bank
 ) {
@@ -89,10 +126,35 @@ static inline void kv_cache_write(
             kv_buf[bank].k_pack[buf_idx] = k_pack;
             kv_buf[bank].v_pack[buf_idx] = v_pack;
 
-            // 写 DDR（128-bit per group，打包进 256-bit AXI）
-            int ddr_off = (head_id * MAX_SEQ * D_HEAD / GRP + pos * (D_HEAD/GRP) + g) >> 1;
-            // 简化：直接写 128-bit（工具会自动合并为 256-bit burst）
-            // 实际需要 read-modify-write，此处用简化版
+            int half_idx = (layer_id * H_KV * MAX_SEQ * (D_HEAD / GRP))
+                         + kv_cache_half_index(head_id, pos, g);
+            axi_write_128_half(k_cache, half_idx, k_pack);
+            axi_write_128_half(v_cache, half_idx, v_pack);
+        }
+    }
+}
+
+static inline void kv_cache_load_head(
+    AXI256 *k_cache,
+    AXI256 *v_cache,
+    int     kv_len,
+    int     layer_id,
+    int     head_id,
+    int     bank
+) {
+#pragma HLS INLINE off
+#pragma HLS INTERFACE m_axi port=k_cache bundle=gmem_kc max_read_burst_length=16
+#pragma HLS INTERFACE m_axi port=v_cache bundle=gmem_vc max_read_burst_length=16
+
+    for (int pos = 0; pos < kv_len; ++pos) {
+        HLS_LOOP_TRIPCOUNT(1, 2048);
+        for (int g = 0; g < D_HEAD / GRP; ++g) {
+#pragma HLS PIPELINE II=1
+            int buf_idx = pos * (D_HEAD / GRP) + g;
+            int half_idx = (layer_id * H_KV * MAX_SEQ * (D_HEAD / GRP))
+                         + kv_cache_half_index(head_id, pos, g);
+            kv_buf[bank].k_pack[buf_idx] = axi_read_128_half(k_cache, half_idx);
+            kv_buf[bank].v_pack[buf_idx] = axi_read_128_half(v_cache, half_idx);
         }
     }
 }
@@ -247,7 +309,8 @@ void multi_head_attention(
     hls::stream<INT32> &o_s,        // 输出 O（所有 Q heads 拼接）
     int                 cur_pos,
     int                 kv_len,
-    int                 q_len
+    int                 q_len,
+    int                 layer_id
 ) {
 #pragma HLS INLINE off
 #pragma HLS INTERFACE m_axi port=k_cache_ddr bundle=gmem_kc offset=slave
@@ -258,9 +321,13 @@ void multi_head_attention(
     for (int h = 0; h < H_KV; ++h) {
         HLS_LOOP_TRIPCOUNT(5, 5);
 
+        if (cur_pos > 0) {
+            kv_cache_load_head(k_cache_ddr, v_cache_ddr, cur_pos, layer_id, h, (int)bank);
+        }
+
         // 写入当前 head 的 KV（流式量化到 DDR + 片上 bank）
         kv_cache_write(k_s, v_s, k_cache_ddr, v_cache_ddr,
-                       cur_pos, q_len, h, (int)bank);
+                       cur_pos, q_len, layer_id, h, (int)bank);
 
         // 执行当前 head 的 Flash Attention
         flash_attention_head(q_s, (int)bank, kv_len, q_len, o_s);

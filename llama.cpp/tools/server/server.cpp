@@ -10,6 +10,13 @@
 #include "speculative.h"
 #include "mtmd.h"
 
+#if defined(LLAMA_SERVER_SMOLVLM2_FPGA)
+#include "fpga_c_api.h"
+#include "ggml.h"
+#include "ggml-backend.h"
+#include "llama-model.h"
+#endif
+
 // mime type for sending response
 #define MIMETYPE_JSON "application/json; charset=utf-8"
 
@@ -17,12 +24,15 @@
 #include "index.html.gz.hpp"
 #include "loading.html.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cinttypes>
+#include <cstdlib>
 #include <deque>
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <signal.h>
@@ -33,6 +43,55 @@
 using json = nlohmann::ordered_json;
 
 constexpr int HTTP_POLLING_SECONDS = 1;
+
+#if defined(LLAMA_SERVER_SMOLVLM2_FPGA)
+namespace {
+
+struct fpga_session_guard {
+    smolvlm2_fpga_session * session = nullptr;
+
+    ~fpga_session_guard() {
+        if (session) {
+            smolvlm2_fpga_session_destroy(session);
+            session = nullptr;
+        }
+    }
+};
+
+static bool fpga_env_true(const char * value) {
+    if (value == nullptr) {
+        return false;
+    }
+    const std::string v(value);
+    return v == "1" || v == "true" || v == "TRUE";
+}
+
+static std::string fpga_last_error(const char *buf) {
+    if (buf == nullptr || buf[0] == '\0') {
+        return "unknown FPGA error";
+    }
+    return std::string(buf);
+}
+
+static int fpga_top1_i32(const std::vector<int32_t> & logits) {
+    int best_id = 0;
+    int32_t best = logits.empty() ? 0 : logits[0];
+    for (size_t i = 1; i < logits.size(); ++i) {
+        if (logits[i] > best) {
+            best = logits[i];
+            best_id = (int)i;
+        }
+    }
+    return best_id;
+}
+
+static int8_t fpga_quantize_f32_to_i8(float v) {
+    const int q = (int)std::lrint(v * 127.0f);
+    return (int8_t)std::max(-127, std::min(127, q));
+}
+
+} // namespace
+#endif
 
 enum stop_type {
     STOP_TYPE_NONE,
@@ -2365,6 +2424,15 @@ struct server_context {
     common_chat_templates_ptr chat_templates;
     oaicompat_parser_options  oai_parser_opt;
 
+#if defined(LLAMA_SERVER_SMOLVLM2_FPGA)
+    bool fpga_enabled = false;
+    fpga_session_guard fpga;
+    std::vector<float> fpga_emb_float;
+    std::vector<int8_t> fpga_emb_i8;
+    std::vector<uint8_t> fpga_emb_raw;
+    std::vector<int8_t> fpga_vision_i8;
+#endif
+
     ~server_context() {
         mtmd_free(mctx);
 
@@ -2405,6 +2473,36 @@ struct server_context {
         n_ctx = llama_n_ctx(ctx);
 
         add_bos_token = llama_vocab_get_add_bos(vocab);
+
+#if defined(LLAMA_SERVER_SMOLVLM2_FPGA)
+        {
+            fpga_enabled = false;
+            const bool want_fpga = fpga_env_true(std::getenv("SMOLVLM2_FPGA_ENABLE"));
+            if (want_fpga) {
+                const char * xclbin = std::getenv("SMOLVLM2_FPGA_XCLBIN");
+                const char * export_dir = std::getenv("SMOLVLM2_FPGA_EXPORT_DIR");
+                if (!xclbin || !export_dir) {
+                    SRV_WRN("%s", "FPGA requested but SMOLVLM2_FPGA_XCLBIN or SMOLVLM2_FPGA_EXPORT_DIR is missing; fallback to CPU");
+                } else {
+                    smolvlm2_fpga_session_config cfg{};
+                    cfg.xclbin_path = xclbin;
+                    cfg.hardware_export_dir = export_dir;
+                    cfg.max_seq = 2048;
+                    cfg.device_index = 0;
+                    char err[512] = {0};
+                    fpga.session = smolvlm2_fpga_session_create(&cfg, err, sizeof(err));
+                    if (fpga.session == nullptr) {
+                        SRV_WRN("failed to create FPGA session, fallback to CPU: %s\n", fpga_last_error(err).c_str());
+                    } else {
+                        fpga_enabled = true;
+                        SRV_INF("FPGA session enabled: xclbin='%s' export='%s'\n", xclbin, export_dir);
+                    }
+                }
+            } else {
+                SRV_INF("%s", "FPGA session disabled (set SMOLVLM2_FPGA_ENABLE=1 to enable)");
+            }
+        }
+#endif
 
         if (!params_base.speculative.model.path.empty() || !params_base.speculative.model.hf_repo.empty()) {
             SRV_INF("loading draft model '%s'\n", params_base.speculative.model.path.c_str());
@@ -3048,6 +3146,269 @@ struct server_context {
         return true;
     }
 
+#if defined(LLAMA_SERVER_SMOLVLM2_FPGA)
+    bool fpga_has_media(const server_task & task) const {
+        bool has_media = false;
+        for (size_t i = 0; i < task.tokens.size(); ++i) {
+            if (task.tokens[i] == LLAMA_TOKEN_NULL) {
+                has_media = true;
+                break;
+            }
+        }
+        return has_media;
+    }
+
+    const int8_t * fpga_token_embedding_i8(llama_token token) {
+        const int n_embd = llama_model_n_embd(model);
+        if (n_embd != 960) {
+            throw std::runtime_error("FPGA path expects hidden size 960");
+        }
+        if (model->tok_embd == nullptr) {
+            throw std::runtime_error("model token embedding tensor is missing");
+        }
+        if (token < 0 || token >= llama_vocab_n_tokens(vocab)) {
+            throw std::runtime_error("token id is outside vocabulary range");
+        }
+
+        fpga_emb_float.resize(n_embd);
+        fpga_emb_i8.resize(n_embd);
+        const size_t row_offset = (size_t)token * model->tok_embd->nb[1];
+        if (model->tok_embd->type == GGML_TYPE_F32) {
+            ggml_backend_tensor_get(model->tok_embd, fpga_emb_float.data(), row_offset, (size_t)n_embd * sizeof(float));
+        } else if (model->tok_embd->type == GGML_TYPE_F16) {
+            fpga_emb_raw.resize((size_t)n_embd * sizeof(ggml_fp16_t));
+            ggml_backend_tensor_get(model->tok_embd, fpga_emb_raw.data(), row_offset, fpga_emb_raw.size());
+            ggml_fp16_to_fp32_row(
+                reinterpret_cast<const ggml_fp16_t *>(fpga_emb_raw.data()),
+                fpga_emb_float.data(),
+                n_embd
+            );
+        } else {
+            throw std::runtime_error("FPGA path supports F32/F16 token embeddings only; quantized GGUF embeddings need a dequant bridge");
+        }
+
+        float max_abs = 0.0f;
+        for (float v : fpga_emb_float) {
+            max_abs = std::max(max_abs, std::fabs(v));
+        }
+        const float scale = max_abs > 0.0f ? 127.0f / max_abs : 1.0f;
+        for (int i = 0; i < n_embd; ++i) {
+            const int q = (int)std::lrint(fpga_emb_float[i] * scale);
+            fpga_emb_i8[i] = (int8_t)std::max(-127, std::min(127, q));
+        }
+        return fpga_emb_i8.data();
+    }
+
+    bool fpga_write_first_image_chunk(const server_task & task, char * err, size_t err_size) {
+        bool saw_image = false;
+        for (size_t pos = 0; pos < task.tokens.size(); ++pos) {
+            if (task.tokens[pos] != LLAMA_TOKEN_NULL) {
+                continue;
+            }
+            if (saw_image) {
+                throw std::runtime_error("FPGA path currently supports exactly one image per request");
+            }
+            saw_image = true;
+            const auto & chunk = task.tokens.find_chunk((llama_pos)pos);
+            if (mtmd_input_chunk_get_type(chunk.get()) != MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+                throw std::runtime_error("FPGA path currently supports image chunks only, not audio chunks");
+            }
+            const mtmd_image_tokens * image_tokens = mtmd_input_chunk_get_tokens_image(chunk.get());
+            if (!image_tokens) {
+                throw std::runtime_error("image chunk does not contain preprocessed image tokens");
+            }
+            if (mtmd_image_tokens_get_n_images(image_tokens) != 1) {
+                throw std::runtime_error("FPGA path expects exactly one preprocessed image entry");
+            }
+            const size_t nx = mtmd_image_tokens_get_image_nx(image_tokens, 0);
+            const size_t ny = mtmd_image_tokens_get_image_ny(image_tokens, 0);
+            size_t n_floats = 0;
+            const float * f32 = mtmd_image_tokens_get_image_f32(image_tokens, 0, &n_floats);
+            if (!f32) {
+                throw std::runtime_error("image chunk f32 data is unavailable");
+            }
+            constexpr size_t expected_patches = 32 * 32;
+            constexpr size_t expected_hidden = 16 * 16 * 3;
+            if (nx * ny * 3 != expected_hidden || n_floats != expected_patches * expected_hidden) {
+                throw std::runtime_error("preprocessed image shape does not match FPGA ViT patch input 1024x768");
+            }
+
+            fpga_vision_i8.resize(expected_patches * expected_hidden);
+            for (size_t i = 0; i < fpga_vision_i8.size(); ++i) {
+                fpga_vision_i8[i] = fpga_quantize_f32_to_i8(f32[i]);
+            }
+            const int rc = smolvlm2_fpga_write_vision_patches_i8(
+                fpga.session,
+                fpga_vision_i8.data(),
+                expected_patches,
+                expected_hidden,
+                err,
+                err_size
+            );
+            if (rc != 0) {
+                return false;
+            }
+            pos += mtmd_input_chunk_get_n_pos(chunk.get()) - 1;
+        }
+        if (!saw_image) {
+            throw std::runtime_error("FPGA multimodal path requires an image chunk");
+        }
+        return true;
+    }
+
+    bool run_fpga_completion_task(const server_task & task) {
+        if (!fpga_enabled || fpga.session == nullptr || mctx == nullptr || task.type != SERVER_TASK_TYPE_COMPLETION) {
+            return false;
+        }
+        if (!fpga_has_media(task)) {
+            return false;
+        }
+        if (task.params.stream) {
+            send_error(task, "FPGA multimodal path currently supports non-streaming responses only", ERROR_TYPE_NOT_SUPPORTED);
+            return true;
+        }
+
+        std::vector<int32_t> token_ids;
+        token_ids.reserve(task.tokens.size());
+        std::vector<int8_t> embeddings;
+        embeddings.reserve(task.tokens.size() * 960);
+        for (size_t i = 0; i < task.tokens.size();) {
+            const llama_token t = task.tokens[i];
+            if (t == LLAMA_TOKEN_NULL) {
+                const auto & chunk = task.tokens.find_chunk((llama_pos)i);
+                if (mtmd_input_chunk_get_type(chunk.get()) != MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+                    send_error(task, "FPGA multimodal path currently supports image chunks only", ERROR_TYPE_NOT_SUPPORTED);
+                    return true;
+                }
+                if (std::find(token_ids.begin(), token_ids.end(), 49190) != token_ids.end()) {
+                    send_error(task, "FPGA multimodal path currently supports exactly one image per request", ERROR_TYPE_NOT_SUPPORTED);
+                    return true;
+                }
+                token_ids.push_back(49190);
+                i += mtmd_input_chunk_get_n_pos(chunk.get());
+                continue;
+            }
+            token_ids.push_back((int32_t)t);
+            const int8_t *emb = fpga_token_embedding_i8(t);
+            embeddings.insert(embeddings.end(), emb, emb + 960);
+            i += 1;
+        }
+
+        const slot_params params = task.params;
+        std::string generated_text;
+        llama_tokens generated_tokens;
+        bool stopped_by_eos = false;
+
+        char err[512] = {0};
+        try {
+            if (!fpga_write_first_image_chunk(task, err, sizeof(err))) {
+                send_error(task, "FPGA write vision patches failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+                return true;
+            }
+        } catch (const std::exception & e) {
+            send_error(task, e.what(), ERROR_TYPE_SERVER);
+            return true;
+        }
+
+        int rc = smolvlm2_fpga_encode_image(fpga.session, err, sizeof(err));
+        if (rc != 0) {
+            send_error(task, "FPGA encode_image failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+            return true;
+        }
+
+        int seq_len = 0;
+        rc = smolvlm2_fpga_build_prefill_activations_i8(
+            fpga.session,
+            token_ids.data(),
+            token_ids.size(),
+            embeddings.empty() ? nullptr : embeddings.data(),
+            960,
+            &seq_len,
+            err,
+            sizeof(err)
+        );
+        if (rc != 0) {
+            send_error(task, "FPGA build_prefill_activations failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+            return true;
+        }
+
+        rc = smolvlm2_fpga_run_prefill(fpga.session, seq_len, err, sizeof(err));
+        if (rc != 0) {
+            send_error(task, "FPGA prefill failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+            return true;
+        }
+
+        int cur_pos = seq_len;
+        int cur_kv = seq_len;
+        const int max_new = params.n_predict > 0 ? params.n_predict : params_base.n_predict;
+        const int n_predict = max_new > 0 ? max_new : 64;
+        std::vector<int32_t> logits(49280);
+
+        for (int step = 0; step < n_predict; ++step) {
+            if (step == 0) {
+                rc = smolvlm2_fpga_run_decode_ttft(fpga.session, cur_pos, cur_kv, err, sizeof(err));
+            } else {
+                rc = smolvlm2_fpga_run_decode_window(fpga.session, cur_pos, cur_kv, 1, err, sizeof(err));
+            }
+            if (rc != 0) {
+                send_error(task, "FPGA decode failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+                return true;
+            }
+
+            rc = smolvlm2_fpga_read_logits(fpga.session, logits.data(), logits.size(), err, sizeof(err));
+            if (rc != 0) {
+                send_error(task, "FPGA read_logits failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+                return true;
+            }
+
+            const llama_token next = fpga_top1_i32(logits);
+            generated_tokens.push_back(next);
+            generated_text += common_token_to_piece(ctx, next, params_base.special);
+            if (next == llama_vocab_eos(vocab)) {
+                stopped_by_eos = true;
+                break;
+            }
+
+            const int8_t *next_emb = fpga_token_embedding_i8(next);
+            rc = smolvlm2_fpga_write_decode_token_activation(fpga.session, cur_pos, next_emb, 960, err, sizeof(err));
+            if (rc != 0) {
+                send_error(task, "FPGA write decode embedding failed: " + fpga_last_error(err), ERROR_TYPE_SERVER);
+                return true;
+            }
+            cur_pos += 1;
+            cur_kv += 1;
+        }
+
+        auto res = std::make_unique<server_task_result_cmpl_final>();
+        res->id = task.id;
+        res->id_slot = -1;
+        res->index = task.index;
+        res->content = generated_text;
+        res->tokens = std::move(generated_tokens);
+        res->prompt = task.tokens.detokenize(ctx, true);
+        res->truncated = false;
+        res->n_decoded = (int32_t)res->tokens.size();
+        res->n_prompt_tokens = (int32_t)task.tokens.size();
+        res->n_tokens_cached = seq_len;
+        res->has_new_line = generated_text.find('\n') != std::string::npos;
+        res->stop = stopped_by_eos ? STOP_TYPE_EOS : STOP_TYPE_LIMIT;
+        res->post_sampling_probs = params.post_sampling_probs;
+        res->verbose = params.verbose;
+        res->stream = false;
+        res->include_usage = params.include_usage;
+        res->oaicompat = params.oaicompat;
+        res->oaicompat_model = params.oaicompat_model;
+        res->oaicompat_cmpl_id = params.oaicompat_cmpl_id;
+        res->generation_params = params;
+        if (params.oaicompat == OAICOMPAT_TYPE_CHAT) {
+            res->oaicompat_msg.role = "assistant";
+            res->oaicompat_msg.content = generated_text;
+        }
+        queue_results.send(std::move(res));
+        return true;
+    }
+#endif
+
     void send_partial_response(server_slot & slot, const completion_token_output & tkn, bool is_progress) {
         auto res = std::make_unique<server_task_result_cmpl_partial>();
 
@@ -3326,6 +3687,13 @@ struct server_context {
             case SERVER_TASK_TYPE_EMBEDDING:
             case SERVER_TASK_TYPE_RERANK:
                 {
+#if defined(LLAMA_SERVER_SMOLVLM2_FPGA)
+                    if (task.type == SERVER_TASK_TYPE_COMPLETION) {
+                        if (run_fpga_completion_task(task)) {
+                            break;
+                        }
+                    }
+#endif
                     const int id_slot = task.id_slot;
 
                     server_slot * slot = id_slot != -1 ? get_slot_by_id(id_slot) : get_available_slot(task);

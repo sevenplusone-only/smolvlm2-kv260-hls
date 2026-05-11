@@ -35,7 +35,7 @@ BUILD_DIR  := build
 # ---------------------------------------------------------------------------
 # .PHONY 目标
 # ---------------------------------------------------------------------------
-.PHONY: all csim synth vit_synth conn_synth link link_multi host quant check_dims clean check_env
+.PHONY: all csim synth vit_synth conn_synth bridge_synth link link_multi host quant quant_exp check_dims clean check_env
 
 all: synth
 
@@ -88,6 +88,13 @@ conn_synth: check_env
 	@mkdir -p $(BUILD_DIR)
 	cd $(SCRIPT_DIR) && $(VITIS_HLS) -f hls_synth_connector.tcl 2>&1 | tee ../$(BUILD_DIR)/hls_connector.log
 
+bridge_synth: check_env
+	@echo "========================================"
+	@echo "  HLS Synthesis (Image->Decoder Bridge)"
+	@echo "========================================"
+	@mkdir -p $(BUILD_DIR)
+	cd $(SCRIPT_DIR) && $(VITIS_HLS) -f hls_synth_bridge.tcl 2>&1 | tee ../$(BUILD_DIR)/hls_bridge.log
+
 # ---------------------------------------------------------------------------
 # link：v++ 链接（时间最长，需要 Vivado License）
 # ---------------------------------------------------------------------------
@@ -127,6 +134,13 @@ quant:
 	@echo "========================================"
 	$(PYTHON) $(SCRIPT_DIR)/quantize_weights.py
 	@echo "[QUANT] Done. Check quantized_weights/"
+
+quant_exp:
+	@echo "========================================"
+	@echo "  Unified Quant Experiment Pipeline"
+	@echo "========================================"
+	$(PYTHON) $(SCRIPT_DIR)/run_quant_experiment.py --scheme all --stage all --output-dir quant_experiments
+	@echo "[QUANT_EXP] Done. Check quant_experiments/"
 
 check_dims:
 	$(PYTHON) $(SCRIPT_DIR)/check_dimensions.py
