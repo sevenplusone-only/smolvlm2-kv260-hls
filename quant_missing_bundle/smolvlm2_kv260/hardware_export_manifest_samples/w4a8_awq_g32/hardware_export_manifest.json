@@ -1,0 +1,633 @@
+{
+  "scheme": {
+    "name": "w4a8_awq_g32",
+    "weight_format": "w4_awq_rtn",
+    "act_format": "a8_per_token",
+    "group_size": 32,
+    "block_size": 1,
+    "calibration_mode": "multimodal_awq",
+    "train_mode": "lora_awq_repair",
+    "checkpoint_path": "checkpoints/w4a8_awq_g32",
+    "export_mode": "kv260_w4a8_awq",
+    "requires_qat": true,
+    "awq_enabled": true,
+    "zero_skip_stats": false,
+    "lora_rank": 8,
+    "weight_bits": 4,
+    "act_bits": 8,
+    "description": "Multimodal AWQ-calibrated W4A8 with short LoRA repair training."
+  },
+  "kv260_status": "native_w4a8_ready_host_folded_awq",
+  "decoder_layers": [
+    {
+      "layer": 0,
+      "w_offset_bytes": 0,
+      "meta_offset_bytes": 0,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 1,
+      "w_offset_bytes": 2457600,
+      "meta_offset_bytes": 307200,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 2,
+      "w_offset_bytes": 4915200,
+      "meta_offset_bytes": 614400,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 3,
+      "w_offset_bytes": 7372800,
+      "meta_offset_bytes": 921600,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 4,
+      "w_offset_bytes": 9830400,
+      "meta_offset_bytes": 1228800,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 5,
+      "w_offset_bytes": 12288000,
+      "meta_offset_bytes": 1536000,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 6,
+      "w_offset_bytes": 14745600,
+      "meta_offset_bytes": 1843200,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 7,
+      "w_offset_bytes": 17203200,
+      "meta_offset_bytes": 2150400,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 8,
+      "w_offset_bytes": 19660800,
+      "meta_offset_bytes": 2457600,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 9,
+      "w_offset_bytes": 22118400,
+      "meta_offset_bytes": 2764800,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 10,
+      "w_offset_bytes": 24576000,
+      "meta_offset_bytes": 3072000,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 11,
+      "w_offset_bytes": 27033600,
+      "meta_offset_bytes": 3379200,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 12,
+      "w_offset_bytes": 29491200,
+      "meta_offset_bytes": 3686400,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 13,
+      "w_offset_bytes": 31948800,
+      "meta_offset_bytes": 3993600,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 14,
+      "w_offset_bytes": 34406400,
+      "meta_offset_bytes": 4300800,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 15,
+      "w_offset_bytes": 36864000,
+      "meta_offset_bytes": 4608000,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 16,
+      "w_offset_bytes": 39321600,
+      "meta_offset_bytes": 4915200,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 17,
+      "w_offset_bytes": 41779200,
+      "meta_offset_bytes": 5222400,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 18,
+      "w_offset_bytes": 44236800,
+      "meta_offset_bytes": 5529600,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 19,
+      "w_offset_bytes": 46694400,
+      "meta_offset_bytes": 5836800,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 20,
+      "w_offset_bytes": 49152000,
+      "meta_offset_bytes": 6144000,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 21,
+      "w_offset_bytes": 51609600,
+      "meta_offset_bytes": 6451200,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 22,
+      "w_offset_bytes": 54067200,
+      "meta_offset_bytes": 6758400,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 23,
+      "w_offset_bytes": 56524800,
+      "meta_offset_bytes": 7065600,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 24,
+      "w_offset_bytes": 58982400,
+      "meta_offset_bytes": 7372800,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 25,
+      "w_offset_bytes": 61440000,
+      "meta_offset_bytes": 7680000,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 26,
+      "w_offset_bytes": 63897600,
+      "meta_offset_bytes": 7987200,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 27,
+      "w_offset_bytes": 66355200,
+      "meta_offset_bytes": 8294400,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 28,
+      "w_offset_bytes": 68812800,
+      "meta_offset_bytes": 8601600,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 29,
+      "w_offset_bytes": 71270400,
+      "meta_offset_bytes": 8908800,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 30,
+      "w_offset_bytes": 73728000,
+      "meta_offset_bytes": 9216000,
+      "quant": "w4_awq_rtn"
+    },
+    {
+      "layer": 31,
+      "w_offset_bytes": 76185600,
+      "meta_offset_bytes": 9523200,
+      "quant": "w4_awq_rtn"
+    }
+  ],
+  "vision_layers": [
+    {
+      "name": "patch_embed",
+      "w_offset_axi256": 0,
+      "meta_offset_axi256": 0,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.0.qkv",
+      "w_offset_axi256": 9216,
+      "meta_offset_axi256": 1152,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.0.attn_out",
+      "w_offset_axi256": 36864,
+      "meta_offset_axi256": 4608,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.0.ffn_up",
+      "w_offset_axi256": 46080,
+      "meta_offset_axi256": 5760,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.0.ffn_down",
+      "w_offset_axi256": 82944,
+      "meta_offset_axi256": 10368,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.1.qkv",
+      "w_offset_axi256": 119808,
+      "meta_offset_axi256": 14976,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.1.attn_out",
+      "w_offset_axi256": 147456,
+      "meta_offset_axi256": 18432,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.1.ffn_up",
+      "w_offset_axi256": 156672,
+      "meta_offset_axi256": 19584,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.1.ffn_down",
+      "w_offset_axi256": 193536,
+      "meta_offset_axi256": 24192,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.2.qkv",
+      "w_offset_axi256": 230400,
+      "meta_offset_axi256": 28800,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.2.attn_out",
+      "w_offset_axi256": 258048,
+      "meta_offset_axi256": 32256,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.2.ffn_up",
+      "w_offset_axi256": 267264,
+      "meta_offset_axi256": 33408,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.2.ffn_down",
+      "w_offset_axi256": 304128,
+      "meta_offset_axi256": 38016,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.3.qkv",
+      "w_offset_axi256": 340992,
+      "meta_offset_axi256": 42624,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.3.attn_out",
+      "w_offset_axi256": 368640,
+      "meta_offset_axi256": 46080,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.3.ffn_up",
+      "w_offset_axi256": 377856,
+      "meta_offset_axi256": 47232,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.3.ffn_down",
+      "w_offset_axi256": 414720,
+      "meta_offset_axi256": 51840,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.4.qkv",
+      "w_offset_axi256": 451584,
+      "meta_offset_axi256": 56448,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.4.attn_out",
+      "w_offset_axi256": 479232,
+      "meta_offset_axi256": 59904,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.4.ffn_up",
+      "w_offset_axi256": 488448,
+      "meta_offset_axi256": 61056,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.4.ffn_down",
+      "w_offset_axi256": 525312,
+      "meta_offset_axi256": 65664,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.5.qkv",
+      "w_offset_axi256": 562176,
+      "meta_offset_axi256": 70272,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.5.attn_out",
+      "w_offset_axi256": 589824,
+      "meta_offset_axi256": 73728,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.5.ffn_up",
+      "w_offset_axi256": 599040,
+      "meta_offset_axi256": 74880,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.5.ffn_down",
+      "w_offset_axi256": 635904,
+      "meta_offset_axi256": 79488,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.6.qkv",
+      "w_offset_axi256": 672768,
+      "meta_offset_axi256": 84096,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.6.attn_out",
+      "w_offset_axi256": 700416,
+      "meta_offset_axi256": 87552,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.6.ffn_up",
+      "w_offset_axi256": 709632,
+      "meta_offset_axi256": 88704,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.6.ffn_down",
+      "w_offset_axi256": 746496,
+      "meta_offset_axi256": 93312,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.7.qkv",
+      "w_offset_axi256": 783360,
+      "meta_offset_axi256": 97920,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.7.attn_out",
+      "w_offset_axi256": 811008,
+      "meta_offset_axi256": 101376,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.7.ffn_up",
+      "w_offset_axi256": 820224,
+      "meta_offset_axi256": 102528,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.7.ffn_down",
+      "w_offset_axi256": 857088,
+      "meta_offset_axi256": 107136,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.8.qkv",
+      "w_offset_axi256": 893952,
+      "meta_offset_axi256": 111744,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.8.attn_out",
+      "w_offset_axi256": 921600,
+      "meta_offset_axi256": 115200,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.8.ffn_up",
+      "w_offset_axi256": 930816,
+      "meta_offset_axi256": 116352,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.8.ffn_down",
+      "w_offset_axi256": 967680,
+      "meta_offset_axi256": 120960,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.9.qkv",
+      "w_offset_axi256": 1004544,
+      "meta_offset_axi256": 125568,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.9.attn_out",
+      "w_offset_axi256": 1032192,
+      "meta_offset_axi256": 129024,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.9.ffn_up",
+      "w_offset_axi256": 1041408,
+      "meta_offset_axi256": 130176,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.9.ffn_down",
+      "w_offset_axi256": 1078272,
+      "meta_offset_axi256": 134784,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.10.qkv",
+      "w_offset_axi256": 1115136,
+      "meta_offset_axi256": 139392,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.10.attn_out",
+      "w_offset_axi256": 1142784,
+      "meta_offset_axi256": 142848,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.10.ffn_up",
+      "w_offset_axi256": 1152000,
+      "meta_offset_axi256": 144000,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.10.ffn_down",
+      "w_offset_axi256": 1188864,
+      "meta_offset_axi256": 148608,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    },
+    {
+      "name": "blk.11.qkv",
+      "w_offset_axi256": 1225728,
+      "meta_offset_axi256": 153216,
+      "M": 1024,
+      "K": 768,
+      "N": 2304
+    },
+    {
+      "name": "blk.11.attn_out",
+      "w_offset_axi256": 1253376,
+      "meta_offset_axi256": 156672,
+      "M": 1024,
+      "K": 768,
+      "N": 768
+    },
+    {
+      "name": "blk.11.ffn_up",
+      "w_offset_axi256": 1262592,
+      "meta_offset_axi256": 157824,
+      "M": 1024,
+      "K": 768,
+      "N": 3072
+    },
+    {
+      "name": "blk.11.ffn_down",
+      "w_offset_axi256": 1299456,
+      "meta_offset_axi256": 162432,
+      "M": 1024,
+      "K": 3072,
+      "N": 768
+    }
+  ],
+  "connector": {
+    "name": "connector.projector",
+    "w_offset_axi256": 0,
+    "meta_offset_axi256": 0,
+    "M": 64,
+    "K": 12288,
+    "N": 960
+  },
+  "artifacts": [
+    "vision_wgt.bin",
+    "vision_meta.bin",
+    "connector_wgt.bin",
+    "connector_meta.bin",
+    "weights_half0.bin",
+    "weights_half1.bin",
+    "meta_half0.bin",
+    "meta_half1.bin",
+    "gamma_attn.bin",
+    "gamma_ffn.bin",
+    "lmhead_wgt_half0.bin",
+    "lmhead_wgt_half1.bin",
+    "lmhead_meta_half0.bin",
+    "lmhead_meta_half1.bin"
+  ]
+}

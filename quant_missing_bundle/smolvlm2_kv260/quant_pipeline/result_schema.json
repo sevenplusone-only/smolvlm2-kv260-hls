@@ -1,0 +1,62 @@
+{
+  "title": "SmolVLM2QuantExperimentResult",
+  "type": "object",
+  "required": [
+    "scheme",
+    "scheme_manifest",
+    "baseline",
+    "stage_info",
+    "results",
+    "runtime"
+  ],
+  "properties": {
+    "scheme": {
+      "type": "string"
+    },
+    "scheme_manifest": {
+      "type": "object",
+      "required": [
+        "weight_format",
+        "act_format",
+        "group_size",
+        "block_size",
+        "calibration_mode",
+        "train_mode",
+        "checkpoint_path",
+        "export_mode"
+      ]
+    },
+    "baseline": {
+      "type": "object"
+    },
+    "stage_info": {
+      "type": "object"
+    },
+    "results": {
+      "type": "object",
+      "properties": {
+        "text_ppl": {
+          "type": "object"
+        },
+        "frozen_eval": {
+          "type": "object"
+        },
+        "heldout_eval": {
+          "type": "object"
+        },
+        "generation_sanity": {
+          "type": "object"
+        },
+        "zero_skip": {
+          "type": "object"
+        },
+        "verdict": {
+          "type": "object"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object"
+    }
+  }
+}
